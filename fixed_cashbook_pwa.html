@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Multi Cashbook — Fixed (No SW)</title>
+<meta name="theme-color" content="#06b6d4">
+<!-- Point to a real manifest.json in the repo root -->
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<style>
+  body { font-family: Arial, sans-serif; background:#f6f7fb; margin:0; color:#222; }
+  header { padding:12px; background:#06b6d4; color:white; }
+  .container { padding:12px; max-width:900px; margin:auto; }
+  .card { background:white; padding:12px; border-radius:8px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+  button { padding:6px 10px; border:0; border-radius:6px; cursor:pointer; }
+  .btn { background:#06b6d4; color:white; }
+  .btn-alt { background:#f3f4f6; border:1px solid #e5e7eb; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:8px; border-bottom:1px solid #e6e7eb; text-align:left; }
+  @media (max-width:600px){ .container{padding:8px} }
+  body.dark { background:#0b1220; color:#e7ecf2; }
+  body.dark .card { background:#081223; color:#e7ecf2; }
+  .small { color: #6b7280; font-size: 13px; }
+</style>
+</head>
+<body>
+<header><h2 style="margin:0">Multi Cashbook (Fixed)</h2></header>
+<div class="container">
+
+  <div class="card">
+    <h3 style="margin-top:0">Cashbooks</h3>
+    <select id="bookSelect" style="padding:8px"></select>
+    <input id="newBookName" placeholder="New cashbook name" style="padding:8px;margin-left:8px">
+    <button class="btn-alt" onclick="createBook()">Create</button>
+    <button class="btn-alt" onclick="renameBook()">Rename</button>
+    <button class="btn-alt" onclick="deleteBook()">Delete</button>
+    <div class="small" style="margin-top:8px">Each cashbook is stored locally in your browser. Use Backup JSON to move between devices.</div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Add / Edit Transaction</h3>
+    <label>Date:</label><br>
+    <input type="date" id="date" style="padding:8px"><br><br>
+    <label>Type:</label><br>
+    <select id="type" style="padding:8px"><option value="credit">Credit (IN)</option><option value="debit">Debit (OUT)</option></select><br><br>
+    <label>Amount (₹):</label><br>
+    <input type="number" id="amount" style="padding:8px" step="0.01"><br><br>
+    <label>Category:</label><br>
+    <input type="text" id="category" style="padding:8px"><br><br>
+    <label>Note:</label><br>
+    <input type="text" id="note" style="padding:8px"><br><br>
+    <button class="btn" onclick="saveTransaction()">Save</button>
+    <button class="btn-alt" onclick="clearForm()">Reset</button>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <div><strong>Total Credit</strong><div id="totalCredit">₹ 0.00</div></div>
+      <div><strong>Total Debit</strong><div id="totalDebit">₹ 0.00</div></div>
+      <div><strong>Balance</strong><div id="balance">₹ 0.00</div></div>
+      <div style="margin-left:auto"><label>Dark mode</label><input type="checkbox" id="darkToggle"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Transactions</h3>
+    <table><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Category</th><th>Note</th></tr></thead><tbody id="txBody"></tbody></table>
+    <div style="margin-top:10px">
+      <button class="btn-alt" onclick="exportCSV()">Export CSV</button>
+      <button class="btn-alt" onclick="backupJSON()">Backup JSON</button>
+      <input id="importFile" type="file" accept="application/json" style="display:none" onchange="handleImport(event)">
+      <button class="btn-alt" onclick="document.getElementById('importFile').click()">Import JSON</button>
+      <button class="btn-alt" onclick="window.print()">Print / Save PDF</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* Stable no-SW cashbook script - fixed to avoid null manifest injection errors */
+(function(){
+  const MASTER_KEY = 'multi_cashbook_v1';
+  let books = JSON.parse(localStorage.getItem(MASTER_KEY) || '{}');
+  let currentBook = null;
+  let editIndex = null;
+
+  function uid(){ return 'b'+Math.random().toString(36).slice(2,9); }
+  function todayISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
+  function saveBooks(){ localStorage.setItem(MASTER_KEY, JSON.stringify(books)); }
+
+  function init(){
+    if(Object.keys(books).length===0){
+      const id = uid(); books[id] = { name: 'Personal', tx: [] }; currentBook = id;
+    } else { currentBook = Object.keys(books)[0]; }
+    populateBookSelect();
+    document.getElementById('date').value = todayISO();
+    applyTheme(localStorage.getItem('cashbook_theme') || 'light');
+    renderTx();
+  }
+
+  function populateBookSelect(){
+    const sel = document.getElementById('bookSelect'); sel.innerHTML = '';
+    for(const id in books){
+      const opt = document.createElement('option'); opt.value = id; opt.textContent = books[id].name; sel.appendChild(opt);
+    }
+    sel.value = currentBook;
+    sel.onchange = (e)=> { currentBook = e.target.value; renderTx(); };
+  }
+
+  window.createBook = function(){
+    const name = (document.getElementById('newBookName').value||'').trim(); if(!name) return alert('Enter name');
+    const id = uid(); books[id] = { name, tx: [] }; currentBook = id; saveBooks(); populateBookSelect(); renderTx(); document.getElementById('newBookName').value = '';
+  };
+  window.renameBook = function(){
+    const name = (document.getElementById('newBookName').value||'').trim(); if(!name) return alert('Enter new name');
+  books[currentBook].name = name; saveBooks(); populateBookSelect(); document.getElementById('newBookName').value = '';
+  };
+  window.deleteBook = function(){
+    if(!confirm('Delete this cashbook?')) return; delete books[currentBook];
+    if(Object.keys(books).length===0){ const id=uid(); books[id]={name:'Personal',tx:[]}; currentBook=id; } else { currentBook = Object.keys(books)[0]; }
+    saveBooks(); populateBookSelect(); renderTx();
+  };
+
+  window.saveTransaction = function(){
+    const date = document.getElementById('date').value;
+    const type = document.getElementById('type').value;
+    const amount = Number(document.getElementById('amount').value||0);
+    const category = document.getElementById('category').value||'General';
+    const note = document.getElementById('note').value||'';
+    if(!date || !amount) return alert('Date and Amount required');
+    const tx = { id: uid(), date, type, amount: Math.round(amount*100)/100, category, note, createdAt: new Date().toISOString() };
+    if(editIndex!==null){ books[currentBook].tx[editIndex]=tx; editIndex=null; } else { books[currentBook].tx.push(tx); }
+    books[currentBook].tx.sort((a,b)=> new Date(a.date)-new Date(b.date) || a.createdAt.localeCompare(b.createdAt));
+    saveBooks(); renderTx(); clearForm();
+  };
+
+  window.clearForm = function(){ editIndex=null; document.getElementById('date').value = todayISO(); document.getElementById('type').value='credit'; document.getElementById('amount').value=''; document.getElementById('category').value=''; document.getElementById('note').value=''; };
+
+  function renderTx(){
+    const txs = (books[currentBook] && books[currentBook].tx) ? books[currentBook].tx : [];
+    const tbody = document.getElementById('txBody'); tbody.innerHTML = '';
+    let credit=0, debit=0;
+    txs.forEach((t,i)=>{ if(t.type==='credit'){ credit+=t.amount; } else { debit+=t.amount; } const tr=document.createElement('tr'); tr.innerHTML = `<td>${t.date}</td><td>${t.type}</td><td>₹ ${t.amount.toFixed(2)}</td><td>${escapeHtml(t.category)}</td><td>${escapeHtml(t.note)}</td>`; tr.onclick = ()=> { if(confirm('Edit this transaction?')){ editIndex=i; document.getElementById('date').value=t.date; document.getElementById('type').value=t.type; document.getElementById('amount').value=t.amount; document.getElementById('category').value=t.category; document.getElementById('note').value=t.note; } }; tbody.appendChild(tr); });
+    document.getElementById('totalCredit').textContent='₹ '+credit.toFixed(2);
+    document.getElementById('totalDebit').textContent='₹ '+debit.toFixed(2);
+    document.getElementById('balance').textContent='₹ '+(credit-debit).toFixed(2);
+    saveBooks();
+  }
+
+  window.exportCSV = function(){
+    const txs = (books[currentBook] && books[currentBook].tx) ? books[currentBook].tx : [];
+    if(txs.length===0) return alert('No transactions');
+    const rows=[['Date','Type','Category','Amount','Note']]; txs.forEach(t=> rows.push([t.date,t.type,t.category,t.amount.toFixed(2), (t.note||'').replace(/\n/g,' ')]));
+    const csv = rows.map(r=> r.map(c=> `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=(books[currentBook].name||'cashbook')+'_'+new Date().toISOString().slice(0,10)+'.csv'; a.click(); URL.revokeObjectURL(url);
+  };
+
+  window.backupJSON = function(){
+    const data = { exportedAt: new Date().toISOString(), bookName: books[currentBook].name, transactions: books[currentBook].tx||[] };
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'}); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=(books[currentBook].name||'cashbook')+'_backup_'+new Date().toISOString().slice(0,10)+'.json'; a.click(); URL.revokeObjectURL(url);
+  };
+
+  window.handleImport = function(e){ const f = e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=function(ev){ try{ const parsed=JSON.parse(ev.target.result); if(!Array.isArray(parsed.transactions)) throw new Error('Invalid format'); if(!confirm('Import will append '+parsed.transactions.length+' transactions. Continue?')) return; const incoming = parsed.transactions.map(t=> ({ id: 'i'+Math.random().toString(36).slice(2,8), date: t.date||todayISO(), type: t.type==='debit'?'debit':'credit', amount: Math.round(Number(t.amount||0)*100)/100, category: t.category||'Imported', note: t.note||'', createdAt: new Date().toISOString() })); books[currentBook].tx = (books[currentBook].tx||[]).concat(incoming); books[currentBook].tx.sort((a,b)=> new Date(a.date)-new Date(b.date) || a.createdAt.localeCompare(b.createdAt)); saveBooks(); renderTx(); alert('Imported '+incoming.length+' transactions.'); }catch(err){ alert('Import failed: '+err.message); } }; r.readAsText(f); };
+
+  document.getElementById('darkToggle').addEventListener('change', function(){ applyTheme(this.checked ? 'dark' : 'light'); });
+  function applyTheme(pref){ if(pref==='dark') document.body.classList.add('dark'); else document.body.classList.remove('dark'); localStorage.setItem('cashbook_theme', pref); }
+
+  function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+
+  init();
+})();
+</script>
+</body>
+</html>
