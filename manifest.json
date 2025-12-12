@@ -1,0 +1,21 @@
+{
+  "name": "Multi Cashbooks",
+  "short_name": "Cashbooks",
+  "description": "Offline multi cashbooks \u2014 multiple ledgers, export, backup, month summary.",
+  "start_url": "./cashbook.html",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#06b6d4",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
